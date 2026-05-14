@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Turnkey Master Dashboard</title>
+  <link rel="stylesheet" href="./style.css?v=20260426" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span class="name">Turnkey Master Dashboard</span>
+    </div>
+    <div class="meta">
+      <span id="ws-status" class="status ok">connected</span>
+      <span class="muted" id="now"></span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="control-center">Control Center</button>
+    <button class="tab" data-tab="claude-code">Claude Code</button>
+    <button class="tab" data-tab="lead-gen">Lead Gen</button>
+    <button class="tab" data-tab="instantly">Instantly</button>
+    <button class="tab" data-tab="crm">CRM</button>
+    <button class="tab" data-tab="hubspot">HubSpot</button>
+    <button class="tab" data-tab="coach">Coach</button>
+    <button class="tab" data-tab="scheduled-jobs">Scheduled Jobs</button>
+    <button class="tab" data-tab="clients">Client Dashboards</button>
+    <button class="tab" data-tab="skills">Skills</button>
+  </nav>
+
+  <main>
+    <!-- ── OVERVIEW TAB ─────────────────────────────────────── -->
+    <section class="tab-panel active" data-panel="overview">
+      <div class="tiles" id="spend-tiles">
+        <div class="tile placeholder">Loading spend…</div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h2>Spend — last 30 days</h2>
+            <span class="muted">by provider, stacked</span>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-spend"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Activity — last 24 hours</h2>
+            <span class="muted">calls per hour, by skill</span>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-activity"></canvas></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>Spend by skill (MTD)</h2></div>
+          <div class="chart-wrap small"><canvas id="chart-skill"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Spend by model (MTD)</h2></div>
+          <div class="chart-wrap small"><canvas id="chart-model"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Live activity</h2>
+          <span class="muted" id="calls-count">0</span>
+        </div>
+        <table class="table" id="calls-table">
+          <thead><tr><th>Time</th><th>Provider</th><th>Model</th><th>Skill</th><th>In</th><th>Out</th><th>$</th><th>ms</th></tr></thead>
+          <tbody><tr><td colspan="8" class="muted center">No calls yet.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── CONTROL CENTER TAB ───────────────────────────────── -->
+    <section class="tab-panel" data-panel="control-center">
+      <div class="cc-hero">
+        <div>
+          <div class="eyebrow">Executive assistant layer</div>
+          <h1>Morning Brief &amp; Command Center</h1>
+          <p>Clean day/week view: priorities, notes, actions, brain maintenance, and source availability.</p>
+        </div>
+        <div class="cc-hero-actions">
+          <button id="cc-refresh">Refresh first draft</button>
+          <span class="muted" id="cc-generated">—</span>
+        </div>
+      </div>
+
+      <div class="grid-2 cc-grid-main">
+        <div class="card cc-card-primary">
+          <div class="card-head"><h2>Morning Brief</h2><span class="muted">first draft</span></div>
+          <div id="cc-brief" class="cc-brief">Loading Control Center…</div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Notes &amp; Actions</h2><span class="muted" id="cc-notes-count"></span></div>
+          <div class="cc-note-form">
+            <input id="cc-note-title" type="text" placeholder="Optional title" />
+            <textarea id="cc-note-body" rows="4" placeholder="Capture an executive note, action, decision, or open loop…"></textarea>
+            <div class="flex-gap">
+              <select id="cc-note-type"><option value="note">Note</option><option value="action">Action</option><option value="decision">Decision</option></select>
+              <button id="cc-note-save">Save note</button>
+              <span class="muted" id="cc-note-status"></span>
+            </div>
+          </div>
+          <div id="cc-notes-list" class="cc-list"><div class="muted center">Loading notes…</div></div>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card"><div class="card-head"><h2>Needs Ricky</h2></div><div id="cc-needs" class="cc-list"></div></div>
+        <div class="card"><div class="card-head"><h2>Today</h2></div><div id="cc-today" class="cc-list"></div></div>
+        <div class="card"><div class="card-head"><h2>This Week</h2></div><div id="cc-week" class="cc-list"></div></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card"><div class="card-head"><h2>Action Radar</h2></div><div id="cc-radar" class="cc-list"></div></div>
+        <div class="card"><div class="card-head"><h2>Brain / Source Health</h2></div><div id="cc-brain" class="cc-list"></div><div id="cc-unavailable" class="cc-unavailable"></div></div>
+      </div>
+    </section>
+
+
+    <!-- ── CLAUDE CODE TAB ─────────────────────────────────── -->
+    <section class="tab-panel" data-panel="claude-code">
+      <div class="tiles" id="cc-tiles">
+        <div class="tile placeholder">Loading Claude Code usage…</div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>Plan $ used — last 30 days</h2><span class="muted">your share of the $200/mo plan, by model</span></div>
+          <div class="chart-wrap"><canvas id="cc-chart-spend"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Tokens flowing — last 30 days</h2><span class="muted">input + cache + output</span></div>
+          <div class="chart-wrap"><canvas id="cc-chart-tokens"></canvas></div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>Top projects — plan $ (30d)</h2><span class="muted">share of the $200 plan</span></div>
+          <div class="chart-wrap small"><canvas id="cc-chart-project"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Model mix — plan $ (30d)</h2><span class="muted">which models are eating your plan</span></div>
+          <div class="chart-wrap small"><canvas id="cc-chart-model"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Heaviest sessions (MTD)</h2>
+          <div class="flex-gap">
+            <span class="muted" id="cc-scan-status"></span>
+            <button id="cc-rescan">Rescan now</button>
+          </div>
+        </div>
+        <table class="table" id="cc-sessions-table">
+          <thead><tr><th>Session</th><th>Project</th><th>Turns</th><th>Plan $</th><th>API $ (would-be)</th><th>Started</th><th>Last turn</th></tr></thead>
+          <tbody><tr><td colspan="6" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── SKILLS TAB ──────────────────────────────────────── -->
+    <section class="tab-panel" data-panel="skills">
+      <div class="card">
+        <div class="card-head">
+          <h2>Skills</h2>
+          <span class="muted" id="skills-count"></span>
+        </div>
+        <div class="filter-row">
+          <button class="pill active" data-filter="all">All</button>
+          <button class="pill" data-filter="maintenance">Maintenance</button>
+          <button class="pill" data-filter="tkcfo-content">TKCFO content</button>
+          <button class="pill" data-filter="faithful-content">FAITHFUL content</button>
+          <button class="pill" data-filter="lead-gen">Lead gen</button>
+          <button class="pill" data-filter="research">Research</button>
+          <button class="pill" data-filter="bill-pay">Bill pay</button>
+          <button class="pill" data-filter="productivity">Productivity</button>
+          <button class="pill" data-filter="creative">Creative</button>
+          <button class="pill" data-filter="client-delivery">Client delivery</button>
+          <button class="pill" data-filter="meta">Meta</button>
+        </div>
+        <div class="skills-grid" id="skills-grid">
+          <div class="muted center">Loading…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── LEAD GEN TAB ────────────────────────────────────── -->
+    <section class="tab-panel" data-panel="lead-gen">
+      <div class="tiles" id="lg-tiles">
+        <div class="tile placeholder">Loading lead-gen master…</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Aggregate by source</h2>
+          <div class="flex-gap">
+            <div class="pill-group" id="lg-period-tabs">
+              <button class="pill" data-period="7">Weekly</button>
+              <button class="pill active" data-period="30">Monthly</button>
+              <button class="pill" data-period="365">Annual</button>
+            </div>
+            <span class="muted" id="lg-period-meta"></span>
+          </div>
+        </div>
+        <table class="table" id="lg-agg-table">
+          <thead><tr>
+            <th>Source</th>
+            <th class="num">Scraped</th>
+            <th class="num">Valid</th>
+            <th class="num">Invalid</th>
+            <th class="num">Catch-all</th>
+            <th class="num">Role</th>
+            <th class="num">Unverified</th>
+            <th class="num">Pushed</th>
+            <th class="num">Sent</th>
+            <th class="num">Replied</th>
+            <th class="num">Bounced</th>
+            <th class="num">Valid %</th>
+          </tr></thead>
+          <tbody><tr><td colspan="12" class="muted center">Loading…</td></tr></tbody>
+          <tfoot><tr class="lg-agg-total"><td colspan="12" class="muted center">—</td></tr></tfoot>
+        </table>
+        <div class="chart-wrap" style="margin-top:14px"><canvas id="lg-chart-aggregate"></canvas></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h2>Leads scraped — last 14 days</h2>
+            <span class="muted">stacked by source</span>
+          </div>
+          <div class="chart-wrap"><canvas id="lg-chart-daily"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>Today's scrape budget</h2>
+            <span class="muted" id="lg-budget-meta">—</span>
+          </div>
+          <table class="table" id="lg-budget-table">
+            <thead><tr><th>Source</th><th>Used</th><th>Cap</th><th>% of cap</th><th>Benched until</th></tr></thead>
+            <tbody><tr><td colspan="5" class="muted center">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>Lead status funnel</h2><span class="muted">whole pipeline</span></div>
+          <div class="chart-wrap small"><canvas id="lg-chart-status"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Leads by source</h2><span class="muted">all-time</span></div>
+          <div class="chart-wrap small"><canvas id="lg-chart-source"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Recent pipeline runs</h2>
+          <span class="muted" id="lg-runs-count"></span>
+        </div>
+        <table class="table" id="lg-runs-table">
+          <thead><tr><th>Pipeline</th><th>Started</th><th>Finished / Heartbeat</th><th>Scraped</th><th>Verified</th><th>Pushed</th><th>Errors</th><th>Notes</th></tr></thead>
+          <tbody><tr><td colspan="8" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Recent state transitions</h2>
+          <span class="muted">most recent 20 lead state changes</span>
+        </div>
+        <table class="table" id="lg-transitions-table">
+          <thead><tr><th>Time</th><th>Lead</th><th>From</th><th>To</th><th>Reason</th></tr></thead>
+          <tbody><tr><td colspan="5" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── SCHEDULED JOBS TAB ──────────────────────────────── -->
+    <section class="tab-panel" data-panel="scheduled-jobs">
+      <div class="tiles" id="sj-tiles">
+        <div class="tile placeholder">Loading schedule…</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>7-day run timeline</h2>
+          <div class="flex-gap">
+            <span class="muted" id="sj-count"></span>
+            <span class="muted" id="sj-legend">
+              <span class="sj-swatch" style="background:var(--chart-a)"></span>Task Scheduler
+              <span class="sj-swatch sj-running" style="margin-left:10px"></span>Running now
+              <span class="sj-swatch sj-past" style="margin-left:10px"></span>Already fired
+            </span>
+            <button id="sj-refresh">Refresh</button>
+          </div>
+        </div>
+        <div id="sj-timeline" class="sj-timeline"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>All scheduled items</h2>
+          <div class="flex-gap">
+            <input id="sj-filter" type="text" value="Turnkey" placeholder="filter substring"
+              style="padding:6px 10px;font:inherit;border:1px solid #d1d5db;border-radius:6px;" />
+            <button id="sj-refresh-list">Refresh list</button>
+          </div>
+        </div>
+        <table class="table" id="sj-table">
+          <thead><tr>
+            <th>Task</th><th>State</th><th>Status</th><th>Last Run</th><th>Last Result</th>
+            <th>Next Run</th><th>Schedule</th><th>Command</th>
+          </tr></thead>
+          <tbody><tr><td colspan="8" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── COACH TAB ───────────────────────────────────────── -->
+    <section class="tab-panel" data-panel="coach">
+      <div class="coach-subtabs">
+        <button class="coach-subtab active" data-coach-sub="plan">Plan Dashboard</button>
+        <button class="coach-subtab" data-coach-sub="journal">Journal &amp; Reviews</button>
+      </div>
+
+      <!-- ── PLAN SUB-TAB (ported from turnkey-coach/dashboard.html) ── -->
+      <div class="coach-sub-pane active" data-coach-pane="plan">
+        <div class="coach-plan-root">
+        <div class="cp-wrap">
+
+        <header class="cp-header">
+          <div class="cp-header-top">
+            <div>
+              <h1 class="cp-h1">Turnkey <span class="cp-accent">Coach</span> — Plan Dashboard</h1>
+              <div class="cp-tag" id="cp-header-sub">Pre-Launch Runway · Day 1 of 22</div>
+            </div>
+            <div class="cp-tag" id="cp-today-date">—</div>
+          </div>
+          <div class="cp-runway-progress">
+            <div class="cp-track"><div class="cp-fill" id="cp-runway-fill" style="width:0%"></div></div>
+            <div class="cp-labels">
+              <span id="cp-runway-start-label">Apr 23 · Runway begins</span>
+              <span id="cp-runway-mid-label">—</span>
+              <span id="cp-runway-end-label">May 15 · Launch</span>
+            </div>
+          </div>
+        </header>
+
+        <div class="cp-tab-bar">
+          <div class="cp-tab active" data-cp-tab="daily">Daily</div>
+          <div class="cp-tab" data-cp-tab="weekly">Weekly</div>
+          <div class="cp-tab" data-cp-tab="goals">12-Month Goal</div>
+          <div class="cp-tab" data-cp-tab="scenarios">Scenarios</div>
+        </div>
+
+        <section class="cp-tab-pane" id="cp-tab-daily">
+          <div class="cp-grid cp-cols-2">
+            <div class="cp-card">
+              <h2>Today's N-Star</h2>
+              <div class="cp-big"><span id="cp-nstar-headline">—</span></div>
+              <div class="cp-note" id="cp-nstar-sub">—</div>
+              <div class="cp-row" style="margin-top:14px"><span class="cp-k">Phase</span><span class="cp-v" id="cp-nstar-phase">—</span></div>
+              <div class="cp-row"><span class="cp-k">Day of plan</span><span class="cp-v" id="cp-nstar-day">—</span></div>
+              <div class="cp-row"><span class="cp-k">Days to next checkpoint</span><span class="cp-v" id="cp-nstar-to-next">—</span></div>
+              <div class="cp-row"><span class="cp-k">Next checkpoint target</span><span class="cp-v" id="cp-nstar-next-target">—</span></div>
+            </div>
+            <div class="cp-card">
+              <h2>Today's Activity Targets</h2>
+              <div id="cp-activity-body">—</div>
+            </div>
+          </div>
+
+          <div class="cp-grid cp-cols-2" style="margin-top:16px">
+            <div class="cp-card">
+              <h2>Top 3 Today</h2>
+              <ol class="cp-top3" id="cp-top3-list"></ol>
+              <div class="cp-note">Prioritized by due-date proximity. Full week list in the Weekly tab.</div>
+            </div>
+            <div class="cp-card">
+              <h2>Decision Rules Quick-Ref</h2>
+              <div class="cp-row"><span class="cp-k">M3 SDR gate (Aug 14)</span><span class="cp-v">If pace on track → hire by M4</span></div>
+              <div class="cp-row"><span class="cp-k">Runway failure (May 13)</span><span class="cp-v">Any gate red → coach proposes 1-wk delay</span></div>
+              <div class="cp-row"><span class="cp-k">Track A — leading</span><span class="cp-v">2 wk warn → tactical action only</span></div>
+              <div class="cp-row"><span class="cp-k">Track B — lagging</span><span class="cp-v">3 wk &lt;85% → curve recalibration</span></div>
+              <div class="cp-row"><span class="cp-k">Tripwire</span><span class="cp-v">&lt;Conservative floor 3 wks → forced</span></div>
+              <div class="cp-row"><span class="cp-k">Compliance</span><span class="cp-v">≥85% daily log · 2 misses → #assistantbot</span></div>
+            </div>
+          </div>
+
+          <div class="cp-grid cp-cols-2" style="margin-top:16px">
+            <div class="cp-card">
+              <h2>Today's To-Dos</h2>
+              <ul class="cp-todo" id="cp-daily-todos"></ul>
+              <div class="cp-note">Check-offs persist locally. All state changes — recalibrations, approvals, EOD log — happen in Slack <code>#turnkey-coach</code>. This view is read-only visual.</div>
+            </div>
+            <div class="cp-card">
+              <h2>Launch Gate Status</h2>
+              <div class="cp-gate-list" id="cp-gates"></div>
+              <div class="cp-note">Click a gate to cycle status: gray → green → amber → red. All must be green on May 13 to launch May 15.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="cp-tab-pane cp-hidden" id="cp-tab-weekly">
+          <div class="cp-grid cp-cols-2">
+            <div class="cp-card">
+              <h2>This Week</h2>
+              <div class="cp-big" id="cp-week-label">—</div>
+              <div class="cp-note" id="cp-week-sub">—</div>
+              <div class="cp-row" style="margin-top:14px"><span class="cp-k">Focus</span><span class="cp-v" id="cp-week-focus">—</span></div>
+              <div class="cp-row"><span class="cp-k">Gate check at week end</span><span class="cp-v" id="cp-week-gate">—</span></div>
+              <div class="cp-row"><span class="cp-k">Days remaining</span><span class="cp-v" id="cp-week-days-left">—</span></div>
+            </div>
+            <div class="cp-card">
+              <h2>Weekly Targets (once live)</h2>
+              <div id="cp-week-targets">—</div>
+            </div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>This Week's Milestones</h2>
+            <ul class="cp-todo" id="cp-week-todos"></ul>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Runway Plan — All 3 Weeks</h2>
+            <table class="cp-table">
+              <thead><tr><th>Week</th><th>Dates</th><th>Primary focus</th><th>Gate check</th></tr></thead>
+              <tbody>
+                <tr><td>W1</td><td>Apr 23 – Apr 29</td><td>Infra: domains, inboxes, DNS, CloudTalk sync, lead_source col</td><td>Warm-up running · CloudTalk dial-test · lead_source live</td></tr>
+                <tr><td>W2</td><td>Apr 30 – May 6</td><td>List QA, script A/B, case studies, CloudTalk end-to-end test</td><td>Reputation &gt;70 avg · CloudTalk logging live</td></tr>
+                <tr><td>W3</td><td>May 7 – May 14</td><td>Final vet, soft-send (May 11), tool implementation, MOUs</td><td>Reputation &gt;85 · bounce &lt;5% · all 7 launch gates green</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Sacred Partner MOU Tracker</h2>
+            <div class="cp-counter-row">
+              <button class="cp-counter-btn" id="cp-partner-minus">−</button>
+              <div class="cp-big" style="margin: 0 6px"><span id="cp-partner-count">0</span><span class="cp-unit">active MOUs</span></div>
+              <button class="cp-counter-btn" id="cp-partner-plus">+</button>
+            </div>
+            <div class="cp-bar" style="margin-top:14px"><span id="cp-partner-bar-m4" style="width:0%"></span></div>
+            <div class="cp-note" id="cp-partner-m4-note">0/2 toward M4 target (Sep 14, 2026)</div>
+            <div class="cp-bar" style="margin-top:10px"><span id="cp-partner-bar-m12" style="width:0%; background: var(--cp-web)"></span></div>
+            <div class="cp-note" id="cp-partner-m12-note">0/4 toward M12 target (May 14, 2027)</div>
+            <div class="cp-note">Expected impact: 2–3 CFO closes/yr at ~60% close rate (warm referrals). Coach flags if &lt;2 by M4.</div>
+          </div>
+        </section>
+
+        <section class="cp-tab-pane cp-hidden" id="cp-tab-goals">
+          <div class="cp-grid cp-cols-3">
+            <div class="cp-card">
+              <h2>12-Month Target</h2>
+              <div class="cp-big">$39,950<span class="cp-unit">/mo by May 14, 2027</span></div>
+              <div class="cp-note">~$12.5k CFO MRR + ~$27.5k Web + maintenance</div>
+            </div>
+            <div class="cp-card">
+              <h2>Net Profit Target</h2>
+              <div class="cp-big">$20,000<span class="cp-unit">/mo</span></div>
+              <div class="cp-note">Supports $5k/mo housing &lt; 25% of take-home</div>
+            </div>
+            <div class="cp-card">
+              <h2>Today's Baseline</h2>
+              <div class="cp-big">$4,000<span class="cp-unit">/mo MRR</span></div>
+              <div class="cp-note">8 CFO clients · ~$500 avg · no active maint book yet</div>
+            </div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Revenue Trajectory · Start → M12</h2>
+            <div class="cp-chart-wrap">
+              <svg id="cp-chart" viewBox="0 0 720 240" preserveAspectRatio="none" style="width:100%; height:260px"></svg>
+            </div>
+            <div class="cp-chart-legend">
+              <span><span class="cp-sw" style="background: var(--cp-accent)"></span>Plan curve (v3)</span>
+              <span><span class="cp-sw" style="background: var(--cp-warn)"></span>"You are here"</span>
+              <span><span class="cp-sw" style="background: var(--cp-web)"></span>Milestones</span>
+            </div>
+            <div class="cp-note">v3 curve: flattened M6–M9 ($18k → $23.5k) to keep the M9→M12 push realistic. Gap M9→M12 = +$16,750 across 3 months, sourced via the 4-lever stress test below.</div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Phase Timeline</h2>
+            <div class="cp-phases" id="cp-phases"></div>
+            <div class="cp-note">5 phases over 12 months · current phase highlighted based on today's date.</div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Milestone Curve (v3)</h2>
+            <div class="cp-milestones" id="cp-milestones-cards"></div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>M9 → M12 Monthly Sub-Plan (stress-tested)</h2>
+            <table class="cp-table">
+              <thead><tr><th>Month</th><th class="cp-num">Target</th><th class="cp-num">CFO MRR</th><th class="cp-num">Web builds</th><th class="cp-num">Maint</th><th>Requires</th></tr></thead>
+              <tbody>
+                <tr><td>M9 · Feb 14</td><td class="cp-num">$23,200</td><td class="cp-num">$10,000</td><td class="cp-num">8 × $1,500</td><td class="cp-num">10 × $120</td><td>Baseline</td></tr>
+                <tr><td>M10 · Mar 14</td><td class="cp-num">$27,500</td><td class="cp-num">$10,800</td><td class="cp-num">9 × $1,650</td><td class="cp-num">14 × $130</td><td>SDR productive</td></tr>
+                <tr><td>M11 · Apr 14</td><td class="cp-num">$32,220</td><td class="cp-num">$11,700</td><td class="cp-num">10 × $1,800</td><td class="cp-num">18 × $140</td><td>Maint attach ≥25%</td></tr>
+                <tr><td>M12 · May 14</td><td class="cp-num">$39,950</td><td class="cp-num">$12,500</td><td class="cp-num">12 × $2,000</td><td class="cp-num">23 × $150</td><td>All 4 levers firing</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Inbound-Assist Sub-Plan (§8.b)</h2>
+            <table class="cp-table">
+              <thead><tr><th>Source</th><th>By M6</th><th>By M12</th><th class="cp-num">Expected closes/yr</th></tr></thead>
+              <tbody>
+                <tr><td>Sacred Partner MOUs</td><td>2 active partners</td><td>4 active partners</td><td class="cp-num">2–3 CFO</td></tr>
+                <tr><td>TKCFO content engine</td><td>12 pieces</td><td>36 pieces</td><td class="cp-num">~2 CFO</td></tr>
+                <tr><td>Client referral ask (M2 + M6)</td><td>~8 asks</td><td>~18 asks</td><td class="cp-num">1–2 CFO</td></tr>
+                <tr><td>Web portfolio inbound</td><td>Portfolio live M1</td><td>8+ case studies</td><td class="cp-num">1–3 web</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="cp-tab-pane cp-hidden" id="cp-tab-scenarios">
+          <div class="cp-card">
+            <h2>Conversion Scenario Explorer</h2>
+            <div class="cp-scenario-tabs">
+              <button data-cp-s="cons">Conservative</button>
+              <button data-cp-s="mod" class="active">Moderate (plan base)</button>
+              <button data-cp-s="str">Stretch</button>
+            </div>
+            <div class="cp-grid cp-cols-3">
+              <div>
+                <div class="cp-tag">CFO gross closes / yr</div>
+                <div class="cp-big" id="cp-sc-cfo">—</div>
+              </div>
+              <div>
+                <div class="cp-tag">Web gross closes / yr</div>
+                <div class="cp-big" id="cp-sc-web">—</div>
+              </div>
+              <div>
+                <div class="cp-tag">Projected M12 MRR</div>
+                <div class="cp-big" id="cp-sc-m12">—</div>
+              </div>
+            </div>
+            <div class="cp-verdict" id="cp-sc-verdict">—</div>
+            <table class="cp-table" style="margin-top:16px">
+              <thead><tr><th>Funnel stage</th><th class="cp-num">CFO</th><th class="cp-num">Web</th><th class="cp-num">Call</th></tr></thead>
+              <tbody id="cp-sc-funnel"></tbody>
+            </table>
+            <div class="cp-note">Plan base = Moderate. Tripwire fires if any stage sustains &lt; Conservative for 3 weeks (§7).</div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>M12 Stress Test — Toggle the 4 Levers</h2>
+            <div class="cp-levers">
+              <label class="cp-lever" data-cp-l="sdr">
+                <input type="checkbox" checked>
+                <span>SDR productive by M10 (500 calls/wk + follow-up nurture)</span>
+                <span class="cp-impact">−$5,000/mo if miss</span>
+              </label>
+              <label class="cp-lever" data-cp-l="web">
+                <input type="checkbox" checked>
+                <span>Web avg price holds at $2,000 in final quarter</span>
+                <span class="cp-impact">−$3,000/mo if settles at $1,750</span>
+              </label>
+              <label class="cp-lever" data-cp-l="maint">
+                <input type="checkbox" checked>
+                <span>Maintenance 23 active at M12 (after 20% churn)</span>
+                <span class="cp-impact">−$750/mo if lands at 18</span>
+              </label>
+              <label class="cp-lever" data-cp-l="cfo">
+                <input type="checkbox" checked>
+                <span>CFO at 25 clients in Q4 (4 net adds)</span>
+                <span class="cp-impact">−$1,000/mo if only 2 net adds</span>
+              </label>
+            </div>
+            <div class="cp-big">$<span id="cp-m12-proj">39,950</span><span class="cp-unit">/mo projected at M12</span></div>
+            <div class="cp-bar" style="margin-top:10px"><span id="cp-m12-bar" style="width:100%"></span></div>
+            <div class="cp-verdict good" id="cp-m12-verdict">All 4 levers firing — plan on target.</div>
+            <div class="cp-note">Each lever reflects a failure mode §8.c explicitly flags. Coach proposes Track B recalibration the moment any lever is missing for 14 days.</div>
+          </div>
+
+          <div class="cp-card" style="margin-top:16px">
+            <h2>Funnel Requirement — What has to be true</h2>
+            <table class="cp-table">
+              <thead><tr><th>Metric</th><th class="cp-num">Target (Moderate)</th><th class="cp-num">Tripwire floor (Conservative)</th></tr></thead>
+              <tbody>
+                <tr><td>CFO reply rate</td><td class="cp-num">0.4%</td><td class="cp-num">0.3%</td></tr>
+                <tr><td>Web reply rate</td><td class="cp-num">0.9%</td><td class="cp-num">0.5%</td></tr>
+                <tr><td>CFO proposal close rate</td><td class="cp-num">25%</td><td class="cp-num">20%</td></tr>
+                <tr><td>Web proposal close rate</td><td class="cp-num">30%</td><td class="cp-num">20%</td></tr>
+                <tr><td>Call connect rate</td><td class="cp-num">12%</td><td class="cp-num">8%</td></tr>
+                <tr><td>Median CFO sales cycle</td><td class="cp-num">&lt;45 days</td><td class="cp-num">&lt;60 days</td></tr>
+              </tbody>
+            </table>
+            <div class="cp-note">If any row sits in the right column for 3 consecutive weeks → unit-economics tripwire forces Track B regardless of pace_pct.</div>
+          </div>
+        </section>
+
+        <footer class="cp-footer">
+          Source of truth: <code>PLAN.md</code> v5 · Read-only view · Actions in Slack <code>#turnkey-coach</code>
+        </footer>
+
+        </div>
+        </div>
+      </div>
+
+      <!-- ── JOURNAL SUB-TAB (existing) ── -->
+      <div class="coach-sub-pane" data-coach-pane="journal">
+        <div class="tiles" id="coach-tiles">
+          <div class="tile placeholder">Loading coach…</div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>New journal entry</h2>
+            <span class="muted">freeform — stored as source=dashboard</span>
+          </div>
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+            <textarea id="coach-entry" rows="4" placeholder="What happened today? What's in your head?"
+              style="width:100%;padding:10px;font:inherit;border:1px solid #d1d5db;border-radius:6px;resize:vertical;"></textarea>
+            <div class="flex-gap">
+              <button id="coach-entry-save">Save entry</button>
+              <span class="muted" id="coach-entry-status"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Latest weekly review</h2>
+            <span class="muted" id="coach-review-meta"></span>
+          </div>
+          <div id="coach-review-body" style="padding:16px;white-space:pre-wrap;line-height:1.5;">
+            <span class="muted">No review yet. Friday 4pm CST writes the first one.</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Journal history</h2>
+            <span class="muted" id="coach-journal-count"></span>
+          </div>
+          <table class="table" id="coach-journal-table">
+            <thead><tr><th>Date</th><th>Source</th><th>Entry</th></tr></thead>
+            <tbody><tr><td colspan="3" class="muted center">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CLIENT DASHBOARDS TAB ───────────────────────────── -->
+    <section class="tab-panel" data-panel="clients">
+      <div class="card">
+        <div class="card-head">
+          <h2>Client Dashboards</h2>
+          <span class="muted" id="clients-count"></span>
+        </div>
+        <div class="skills-grid" id="clients-grid">
+          <div class="muted center">Loading…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── INSTANTLY TAB ────────────────────────────────────── -->
+    <section class="tab-panel" data-panel="instantly">
+      <div class="tiles" id="inst-tiles">
+        <div class="tile placeholder">Loading Instantly…</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Campaign breakdown — last 30 days</h2>
+          <button id="inst-refresh" style="margin-left:auto">Refresh</button>
+        </div>
+        <table class="table" id="inst-campaigns-table">
+          <thead><tr>
+            <th>Campaign</th><th>Status</th>
+            <th class="num">Leads</th><th class="num">Sent</th>
+            <th class="num">Opened</th><th class="num">Replied</th><th class="num">Bounced</th>
+            <th class="num">Open %</th><th class="num">Reply %</th><th class="num">Bounce %</th>
+          </tr></thead>
+          <tbody><tr><td colspan="10" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <h2>Warmup accounts</h2>
+          <span class="muted" id="inst-accounts-count"></span>
+        </div>
+        <table class="table" id="inst-accounts-table">
+          <thead><tr><th>Email</th><th>Warmup enabled</th><th>Score</th><th>Status</th><th class="num">Daily limit</th></tr></thead>
+          <tbody><tr><td colspan="5" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── CRM TAB ───────────────────────────────────────── -->
+    <section class="tab-panel" data-panel="crm">
+      <div class="tiles" id="crm-tiles">
+        <div class="tile placeholder">Loading CRM…</div>
+      </div>
+
+      <div id="crm-goal-section"></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2>Active Clients</h2>
+          <div class="flex-gap">
+            <span class="muted" id="crm-active-count"></span>
+            <button id="crm-refresh">Refresh</button>
+          </div>
+        </div>
+        <table class="table" id="crm-clients-table">
+          <thead><tr>
+            <th>Client</th><th class="num">MRR</th><th>Tier</th>
+            <th>Health</th><th>Last Close</th><th>Next Action</th><th></th>
+          </tr></thead>
+          <tbody><tr><td colspan="7" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <h2>Pipeline &amp; Forecast</h2>
+          <span class="muted" id="crm-pipeline-count"></span>
+        </div>
+        <table class="table" id="crm-pipeline-table">
+          <thead><tr>
+            <th>Opportunity</th><th class="num">MRR potential</th>
+            <th>Source</th><th>Next Action</th><th></th>
+          </tr></thead>
+          <tbody><tr><td colspan="5" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── HUBSPOT TAB ────────────────────────────────────── -->
+    <section class="tab-panel" data-panel="hubspot">
+      <div class="tiles" id="hs-tiles">
+        <div class="tile placeholder">Loading HubSpot…</div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h2>Deal pipeline</h2><span class="muted" id="hs-deals-count"></span></div>
+          <table class="table" id="hs-pipeline-table">
+            <thead><tr><th>Stage</th><th class="num">Deals</th><th class="num">Total value</th></tr></thead>
+            <tbody><tr><td colspan="3" class="muted center">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Contacts by lifecycle stage</h2></div>
+          <div class="chart-wrap small"><canvas id="hs-chart-stage"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <div class="card-head">
+          <h2>Recent contacts</h2>
+          <button id="hs-refresh" style="margin-left:auto">Refresh</button>
+        </div>
+        <table class="table" id="hs-contacts-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Stage</th><th>Next call</th><th>Created</th></tr></thead>
+          <tbody><tr><td colspan="5" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="./vendor/chart.umd.js"></script>
+  <script src="./app.js?v=20260426"></script>
+</body>
+</html>
