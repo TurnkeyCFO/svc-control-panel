@@ -13,7 +13,7 @@ from app import config
 from app.db import (
     init_db, recent_llm_calls, spend_summary, recent_jobs, record_action,
     timeseries_spend_daily, timeseries_activity_hourly,
-    breakdown_by_skill, breakdown_by_model,
+    breakdown_by_skill, breakdown_by_model, breakdown_by_session,
 )
 from app.middleware.localhost_only import LocalhostOnlyMiddleware
 from app.collectors import skills_state, env_audit, processes, task_scheduler, claude_code, coach, lead_gen, hubspot, instantly, crm_hs, control_center, agents
@@ -224,6 +224,11 @@ def bd_model(days: int = 30):
     return {"days": days, "rows": breakdown_by_model(days)}
 
 
+@app.get("/api/breakdown/session")
+def bd_session(days: int = 30):
+    return {"days": days, "rows": breakdown_by_session(days)}
+
+
 @app.get("/api/claude-code/summary")
 def cc_summary():
     return claude_code.summary()
@@ -301,10 +306,15 @@ def clients_list():
         return {"clients": []}
     rows = []
     for slug, c in (data.get("clients") or {}).items():
+        links = c.get("links") or []
+        # Back-compat: synthesize a single link from portal_url if no links array.
+        if not links and c.get("portal_url"):
+            links = [{"label": "Open portal", "url": c.get("portal_url")}]
         rows.append({
             "slug": slug,
             "display_name": c.get("display_name") or slug,
             "portal_url": c.get("portal_url") or "",
+            "links": links,
             "github_repo": c.get("github_repo") or "",
             "dashboard_types": c.get("dashboard_types") or [],
             "business_type": c.get("business_type") or "",
@@ -316,6 +326,11 @@ def clients_list():
 @app.get("/api/crm/snapshot")
 def crm_snapshot():
     return crm_hs.fetch()
+
+
+@app.get("/api/crm/forecast")
+def crm_forecast():
+    return crm_hs.forecast()
 
 
 @app.post("/api/crm/refresh")

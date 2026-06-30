@@ -113,6 +113,14 @@ CREATE TABLE IF NOT EXISTS control_center_runs (
     notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_control_center_runs_ts ON control_center_runs(ts DESC);
+
+CREATE TABLE IF NOT EXISTS session_meta (
+    session_id TEXT PRIMARY KEY,
+    title TEXT,
+    title_source TEXT,
+    project_slug TEXT,
+    updated REAL
+);
 """
 
 
@@ -136,31 +144,68 @@ def connect():
             conn.close()
 
 
+# ── Unified LLM-call view ────────────────────────────────────────────────
+# The Overview tab is fed from a single logical "llm_calls" stream. In practice
+# the bulk of real telemetry lands in `claude_code_turns` (Claude Code CLI usage
+# on the Max subscription) and OpenRouter spend lands in
+# `provider_usage_snapshots`. `llm_calls` itself is kept in the UNION so any
+# future direct-API writer is picked up automatically. The subquery below
+# normalises claude_code_turns into the llm_calls column shape.
+_UNIFIED_CALLS = """
+    SELECT ts,
+           'claude-code'        AS provider,
+           model                AS model,
+           project_slug         AS skill_tag,
+           input_tokens         AS tokens_in,
+           output_tokens        AS tokens_out,
+           usd                  AS usd,
+           NULL                 AS latency_ms
+    FROM claude_code_turns
+    UNION ALL
+    SELECT ts, provider, model, skill_tag, tokens_in, tokens_out, usd, latency_ms
+    FROM llm_calls
+"""
+
+
 def recent_llm_calls(limit: int = 50):
     with connect() as c:
-        rows = c.execute("SELECT * FROM llm_calls ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
+        rows = c.execute(
+            f"SELECT * FROM ({_UNIFIED_CALLS}) ORDER BY ts DESC LIMIT ?", (limit,)
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
+def _openrouter_window_spend(c, since_expr: str) -> float:
+    """OpenRouter total_usage is cumulative; spend in a window = max-min delta."""
+    r = c.execute(
+        """SELECT MAX(value_usd) - MIN(value_usd) AS d
+           FROM provider_usage_snapshots
+           WHERE provider = 'openrouter' AND metric = 'total_usage'
+             AND ts >= strftime('%s', 'now', ?)""",
+        (since_expr,),
+    ).fetchone()
+    return (r["d"] or 0) if r else 0
+
+
 def spend_summary():
+    rows: list[dict] = []
     with connect() as c:
-        totals = c.execute("""
-            SELECT provider, SUM(usd) AS mtd
-            FROM llm_calls
-            WHERE ts >= strftime('%s', 'now', 'start of month')
+        totals = c.execute(f"""
+            SELECT provider,
+                   COALESCE(SUM(CASE WHEN ts >= strftime('%s','now','start of month') THEN usd END), 0) AS mtd,
+                   COALESCE(SUM(CASE WHEN ts >= strftime('%s','now','start of day')   THEN usd END), 0) AS today
+            FROM ({_UNIFIED_CALLS})
             GROUP BY provider
         """).fetchall()
-        today = c.execute("""
-            SELECT provider, SUM(usd) AS today
-            FROM llm_calls
-            WHERE ts >= strftime('%s', 'now', 'start of day')
-            GROUP BY provider
-        """).fetchall()
-    today_map = {r["provider"]: r["today"] or 0 for r in today}
-    return [
-        {"provider": r["provider"], "today": today_map.get(r["provider"], 0), "mtd": r["mtd"] or 0}
-        for r in totals
-    ]
+        for r in totals:
+            if r["mtd"] or r["today"]:
+                rows.append({"provider": r["provider"], "today": r["today"] or 0, "mtd": r["mtd"] or 0})
+        # OpenRouter spend from cumulative-usage snapshots
+        or_today = _openrouter_window_spend(c, "start of day")
+        or_mtd = _openrouter_window_spend(c, "start of month")
+        if or_today or or_mtd:
+            rows.append({"provider": "openrouter", "today": or_today, "mtd": or_mtd})
+    return rows
 
 
 def recent_jobs(limit: int = 50):
@@ -178,7 +223,7 @@ def timeseries_spend_daily(days: int = 30) -> list[dict]:
                 strftime('%Y-%m-%d', ts, 'unixepoch', 'localtime') AS day,
                 provider,
                 SUM(COALESCE(usd, 0)) AS usd
-            FROM llm_calls
+            FROM ({_UNIFIED_CALLS})
             WHERE ts >= strftime('%s', 'now', '-{int(days)} days')
             GROUP BY day, provider
             ORDER BY day ASC
@@ -194,7 +239,7 @@ def timeseries_activity_hourly(hours: int = 24) -> list[dict]:
                 skill_tag,
                 COUNT(*) AS calls,
                 SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)) AS tokens
-            FROM llm_calls
+            FROM ({_UNIFIED_CALLS})
             WHERE ts >= strftime('%s', 'now', '-{int(hours)} hours')
             GROUP BY hour, skill_tag
             ORDER BY hour ASC
@@ -211,7 +256,7 @@ def breakdown_by_skill(days: int = 30) -> list[dict]:
                 SUM(COALESCE(usd, 0)) AS usd,
                 SUM(COALESCE(tokens_in, 0)) AS tokens_in,
                 SUM(COALESCE(tokens_out, 0)) AS tokens_out
-            FROM llm_calls
+            FROM ({_UNIFIED_CALLS})
             WHERE ts >= strftime('%s', 'now', '-{int(days)} days')
             GROUP BY skill_tag
             ORDER BY usd DESC
@@ -226,13 +271,69 @@ def breakdown_by_model(days: int = 30) -> list[dict]:
                 COALESCE(model, 'unknown') AS model,
                 COUNT(*) AS calls,
                 SUM(COALESCE(usd, 0)) AS usd,
-                AVG(COALESCE(latency_ms, 0)) AS avg_latency_ms
-            FROM llm_calls
+                AVG(latency_ms) AS avg_latency_ms
+            FROM ({_UNIFIED_CALLS})
             WHERE ts >= strftime('%s', 'now', '-{int(days)} days')
             GROUP BY model
             ORDER BY usd DESC
         """).fetchall()
     return [dict(r) for r in rows]
+
+
+def upsert_session_meta(session_id: str, title: str, title_source: str,
+                        project_slug: str, updated: float) -> None:
+    """Store a human-readable title per Claude Code session (from ai-title or
+    first real user prompt). Re-runnable: an ai-title always wins over a
+    fallback-derived label."""
+    if not session_id:
+        return
+    with connect() as c:
+        c.execute(
+            """INSERT INTO session_meta (session_id, title, title_source, project_slug, updated)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(session_id) DO UPDATE SET
+                 title = CASE
+                     WHEN excluded.title_source = 'ai-title' THEN excluded.title
+                     WHEN session_meta.title_source = 'ai-title' THEN session_meta.title
+                     ELSE excluded.title END,
+                 title_source = CASE
+                     WHEN excluded.title_source = 'ai-title' THEN 'ai-title'
+                     ELSE session_meta.title_source END,
+                 project_slug = excluded.project_slug,
+                 updated = excluded.updated""",
+            (session_id, title, title_source, project_slug, updated),
+        )
+
+
+def breakdown_by_session(days: int = 30, top: int = 14) -> list[dict]:
+    """Spend grouped by Claude Code session, labelled with its readable title.
+    Returns the top `top` sessions by spend; the remainder is folded into a
+    single 'Other sessions' slice so the doughnut stays legible."""
+    with connect() as c:
+        rows = c.execute(f"""
+            SELECT
+                t.session_id AS session_id,
+                COALESCE(NULLIF(m.title, ''), 'session ' || substr(t.session_id, 1, 8)) AS label,
+                COUNT(*) AS calls,
+                SUM(COALESCE(t.usd, 0)) AS usd
+            FROM claude_code_turns t
+            LEFT JOIN session_meta m ON m.session_id = t.session_id
+            WHERE t.ts >= strftime('%s', 'now', '-{int(days)} days')
+            GROUP BY t.session_id
+            ORDER BY usd DESC
+        """).fetchall()
+    out = [dict(r) for r in rows]
+    if len(out) > top:
+        head = out[:top]
+        tail = out[top:]
+        head.append({
+            "session_id": "",
+            "label": f"Other ({len(tail)} sessions)",
+            "calls": sum(r["calls"] for r in tail),
+            "usd": sum(r["usd"] for r in tail),
+        })
+        return head
+    return out
 
 
 def record_action(route: str, skill_id: str, origin: str, csrf_ok: bool, outcome: str) -> None:

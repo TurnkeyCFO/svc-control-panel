@@ -49,7 +49,6 @@ document.querySelectorAll(".tab").forEach(btn => {
     btn.classList.add("active");
     document.querySelector(`.tab-panel[data-panel="${btn.dataset.tab}"]`).classList.add("active");
     if (btn.dataset.tab === "agents") { try { loadAgentManager(); } catch {} }
-    if (btn.dataset.tab === "control-center") { try { loadControlCenter(); } catch {} }
     if (btn.dataset.tab === "lead-gen") { try { loadLeadGen(); } catch {} }
     if (btn.dataset.tab === "scheduled-jobs") { try { loadScheduledJobs(); } catch {} }
     if (btn.dataset.tab === "crm") { state.tabsLoaded.add("crm"); try { loadCrm(); } catch {} }
@@ -66,18 +65,32 @@ async function loadBootstrap() {
 
 // ───── spend tiles ─────
 async function loadSpend() {
-  const { summary } = await api("/api/spend");
+  const [{ summary }, cc] = await Promise.all([
+    api("/api/spend"),
+    api("/api/claude-code/summary"),
+  ]);
   const el = document.getElementById("spend-tiles");
-  let totalToday = 0, totalMtd = 0;
+
+  const plan = cc.plan || {};
+  const ccApiToday = (cc.today || {}).api_usd || 0;
+  const ccApiMtd = plan.api_equivalent_mtd || 0;
+  const leverage = plan.leverage_x || 0;
+  const savings = plan.savings_mtd || 0;
+  const planMonthly = plan.monthly_usd || 200;
+
+  // Merge OpenRouter/external telemetry (usually empty) + Claude Code
+  let totalToday = ccApiToday, totalMtd = ccApiMtd;
   summary.forEach(r => { totalToday += r.today || 0; totalMtd += r.mtd || 0; });
+
   const tiles = [
-    `<div class="tile"><div class="label">Today</div><div class="value">${fmtUsd(totalToday)}</div><div class="sub">all providers</div></div>`,
-    `<div class="tile"><div class="label">Month to date</div><div class="value">${fmtUsd(totalMtd)}</div><div class="sub">all providers</div></div>`,
+    `<div class="tile"><div class="label">API-equivalent today</div><div class="value">${fmtUsd(totalToday)}</div><div class="sub">what this would cost pay-as-you-go</div></div>`,
+    `<div class="tile"><div class="label">API-equivalent MTD</div><div class="value">${fmtUsd(totalMtd)}</div><div class="sub">vs $${planMonthly.toFixed(0)} Max plan flat fee</div></div>`,
+    `<div class="tile"><div class="label">Leverage MTD</div><div class="value">${leverage.toFixed(1)}×</div><div class="sub">saved ${fmtUsd(savings)} vs pay-as-you-go</div></div>`,
+    `<div class="tile"><div class="label">Claude Max (today)</div><div class="value">${fmtUsd(ccApiToday)}</div><div class="sub">${(cc.today || {}).turns || 0} turns · plan share ${fmtUsd((cc.today || {}).usd || 0)}</div></div>`,
+    `<div class="tile"><div class="label">Claude Max (MTD)</div><div class="value">${fmtUsd(ccApiMtd)}</div><div class="sub">${(cc.month || {}).turns || 0} turns · ${(cc.month || {}).sessions || 0} sessions</div></div>`,
   ];
   if (summary.length) {
     summary.forEach(r => tiles.push(`<div class="tile"><div class="label">${esc(r.provider)}</div><div class="value">${fmtUsd(r.today)}</div><div class="sub">today · MTD ${fmtUsd(r.mtd)}</div></div>`));
-  } else {
-    tiles.push(`<div class="tile"><div class="label">Status</div><div class="value">no data</div><div class="sub">Telemetry will populate after your next skill run.</div></div>`);
   }
   el.innerHTML = tiles.join("");
 }
@@ -93,12 +106,170 @@ async function loadCalls() {
       <td>${fmtTime(c.ts)}</td>
       <td>${esc(c.provider)}</td>
       <td>${esc(c.model)}</td>
-      <td>${esc(c.skill_tag)}</td>
+      <td>${esc(prettyProject(c.skill_tag))}</td>
       <td>${c.tokens_in ?? "—"}</td>
       <td>${c.tokens_out ?? "—"}</td>
       <td>${fmtUsd4(c.usd)}</td>
       <td>${c.latency_ms ?? "—"}</td>
     </tr>`).join("");
+}
+
+// ───── revenue goal progress bar (shared by Overview + CRM) ─────
+const _fmtMrr = n => "$" + Math.round(Number(n) || 0).toLocaleString();
+function renderGoalBar(targetId, activeMrr) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  const GOAL_FULL = 15000;   // FULL TIME TURNKEY
+  const GOAL_MILE = 9000;    // QUIT ALTERYX milestone
+  activeMrr = activeMrr || 0;
+  const pct = Math.min(100, (activeMrr / GOAL_FULL) * 100);
+  const milePct = (GOAL_MILE / GOAL_FULL) * 100; // 60%
+  const hitMile = activeMrr >= GOAL_MILE;
+  const hitFull = activeMrr >= GOAL_FULL;
+  const fillColor = hitFull ? "#FFD700" : hitMile ? "#00E676" : "#047857";
+  const pctLabel = pct > 12 ? `<span style="font-size:11px;font-weight:700;color:#000;padding-right:6px;">${pct.toFixed(0)}%</span>` : "";
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <div style="padding:20px 24px;">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;">
+          <div style="font-size:12px;font-weight:700;letter-spacing:.08em;color:#5B635E;">REVENUE GOAL · ACTIVE MRR</div>
+          <div style="font-size:22px;font-weight:800;color:#0F1311;">
+            ${_fmtMrr(activeMrr)}
+            <span style="font-size:13px;font-weight:400;color:#8A918C;">/ ${_fmtMrr(GOAL_FULL)} MRR</span>
+          </div>
+        </div>
+        <div style="position:relative;height:32px;background:#1F2937;border-radius:8px;overflow:visible;margin-bottom:28px;">
+          <div style="position:absolute;left:0;top:0;height:100%;width:${pct}%;background:${fillColor};border-radius:8px;display:flex;align-items:center;justify-content:flex-end;">${pctLabel}</div>
+          <div style="position:absolute;left:${milePct}%;top:-8px;bottom:-8px;width:2px;background:#F59E0B;z-index:2;border-radius:2px;"></div>
+          <div style="position:absolute;left:${milePct}%;top:40px;transform:translateX(-50%);white-space:nowrap;text-align:center;">
+            <span style="font-size:10px;font-weight:700;letter-spacing:.06em;color:#F59E0B;">QUIT ALTERYX</span>
+            <span style="font-size:10px;color:#6B7280;display:block;">$9,000</span>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:11px;color:#4B5563;">$0</span>
+          <span style="font-size:${hitFull ? "13px" : "11px"};font-weight:${hitFull ? "800" : "400"};color:${hitFull ? "#FFD700" : "#4B5563"};">
+            ${hitFull ? "★ FULL TIME TURNKEY ★" : "FULL TIME TURNKEY · $15,000"}
+          </span>
+        </div>
+        ${hitFull ? '<div style="margin-top:16px;text-align:center;font-size:16px;font-weight:800;color:#FFD700;letter-spacing:.1em;">YOU DID IT — FULL TIME TURNKEY</div>' : ""}
+      </div>
+    </div>`;
+}
+
+// Overview reads the SAME CRM snapshot as the CRM tab → MRR can't disagree.
+async function loadOverviewGoal() {
+  try {
+    const d = await api("/api/crm/snapshot");
+    const s = d.summary || {};
+    window._activeMrr = s.active_mrr || 0;
+    renderGoalBar("overview-goal-section", window._activeMrr);
+  } catch (e) { /* leave empty on failure */ }
+}
+
+// Earnings-potential forecast: KPI tiles + stacked service-line bars + per-line
+// table + assumptions. Recurring (CFO/Web MRR) + one-time (Recruiting/Web builds).
+async function loadOverviewForecast() {
+  let f;
+  try { f = await api("/api/crm/forecast"); } catch (e) { return; }
+  const el = document.getElementById("overview-forecast");
+  if (!el) return;
+  const months = f.months || [];
+  if (!months.length) { el.innerHTML = ""; return; }
+  const k = f.kpis || {};
+  const pct = Math.round((f.margin || 0.7) * 100);
+  const labels = months.map(m => m.label);
+
+  // KPI tiles
+  const tile = (label, val, sub, accent) => `
+    <div class="tile" style="border-left:3px solid ${accent || "#00B050"};">
+      <div class="label">${label}</div>
+      <div class="value">${val}</div>
+      <div class="sub">${sub}</div>
+    </div>`;
+  const kpis = [
+    tile("6-Mo Earnings Potential", _fmtMrr(k.six_month_total), "Jul–Dec gross revenue", "#00B050"),
+    tile(`6-Mo Net @ ${pct}%`, _fmtMrr(k.six_month_net), "after assumed margin", "#047857"),
+    tile("Exit MRR (Dec)", _fmtMrr(k.exit_mrr), "recurring run-rate at +6mo", "#2563EB"),
+    tile("Recruiting Pops", _fmtMrr(k.recruiting_total), `peak month ${k.peak_label} · ${_fmtMrr(k.peak_total)}`, "#F59E0B"),
+  ].join("");
+
+  // table rows
+  const th = s => `<th style="padding:6px 9px;text-align:right;font-size:11px;font-weight:700;color:#5B635E;white-space:nowrap;">${s}</th>`;
+  const tdL = (s, c) => `<td style="padding:6px 9px;text-align:left;font-size:12px;font-weight:600;color:${c || "#5B635E"};white-space:nowrap;">${s}</td>`;
+  const td = (v, bold, c) => `<td style="padding:6px 9px;text-align:right;font-size:13px;color:${c || "#0F1311"};${bold ? "font-weight:800;" : "font-weight:600;"}">${v ? _fmtMrr(v) : "—"}</td>`;
+  const headRow = `<tr><th style="text-align:left;padding:6px 9px;"></th>${labels.map(th).join("")}</tr>`;
+  const row = (lbl, key, dot) => `<tr><td style="padding:6px 9px;text-align:left;font-size:12px;font-weight:600;color:#5B635E;white-space:nowrap;"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${dot};margin-right:7px;"></span>${lbl}</td>${months.map(m => td(m[key])).join("")}</tr>`;
+  const totalRow = `<tr style="border-top:2px solid #E3E8E5;">${tdL("Total", "#0F1311")}${months.map(m => td(m.total, true)).join("")}</tr>`;
+  const netRow = `<tr>${tdL(`Net @ ${pct}%`, "#047857")}${months.map(m => td(m.net, true, "#047857")).join("")}</tr>`;
+  const table = `<table style="width:100%;border-collapse:collapse;margin-top:6px;">
+    ${headRow}
+    ${row("Turnkey CFO · MRR", "cfo_mrr", "#00B050")}
+    ${row("Turnkey Web · MRR", "web_mrr", "#2563EB")}
+    ${row("Web · builds (1×)", "web_onetime", "#93C5FD")}
+    ${row("Recruiting (1×)", "recruiting_onetime", "#F59E0B")}
+    ${totalRow}${netRow}</table>`;
+
+  // assumptions
+  const a = f.assumptions || {};
+  const money = n => "$" + Math.round(n).toLocaleString();
+  const cfoLines = (a.cfo_new_clients || []).map(c =>
+    `${c.name} <b>${money(c.monthly)}/mo</b>${c.ramp_to ? ` → ${money(c.ramp_to)} over ${c.ramp_months}mo` : ""} · starts +${c.start_month}mo`);
+  const rollLines = (a.temp_rolloffs || []).map(t => `${t.name} −${money(t.amount)}/mo at +${t.end_month}mo`);
+  const recLines = (a.recruiting || []).map(r => `${r.name} <b>${money(r.amount)}</b> at +${r.month}mo`);
+  const webA = a.web || {};
+  const webLine = `${webA.new_care_plans_per_month || 0} new $${webA.care_plan_value || 147}/mo care plan(s)/mo from +${webA.care_plans_start_month || 2}mo`
+    + (webA.one_time && webA.one_time.length ? ` · builds: ${webA.one_time.map(o => `${o.name} ${money(o.amount)} @+${o.month}mo`).join(", ")}` : "");
+  const assumptions = `
+    <div style="margin-top:14px;border-top:1px solid #E3E8E5;padding-top:12px;">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;color:#8A918C;margin-bottom:8px;">ASSUMPTIONS · edit app/forecast_config.json</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px 22px;font-size:11.5px;color:#5B635E;line-height:1.55;">
+        <div><b style="color:#00B050;">CFO new clients</b><br>${cfoLines.join("<br>") || "—"}<br><span style="color:#B7791F;">Roll-off:</span> ${rollLines.join("; ") || "none"}</div>
+        <div><b style="color:#2563EB;">Web</b><br>Live base ${money(f.web_base)}/mo (care plans)<br>${webLine}</div>
+        <div><b style="color:#F59E0B;">Recruiting (gross)</b><br>${recLines.join("<br>") || "—"}<br><span style="color:#8A918C;">Gross retained installments — Tim's commission (~50–60%) not netted here.</span></div>
+      </div>
+    </div>`;
+
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px;padding:18px 22px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;flex-wrap:wrap;gap:6px;">
+        <div style="font-size:13px;font-weight:800;letter-spacing:.04em;color:#0F1311;">EARNINGS POTENTIAL · NEXT 6 MONTHS</div>
+        <div style="font-size:11px;color:#8A918C;">CFO + Web recurring · Recruiting + Web one-time · live CRM base · excl. Dakota referral list</div>
+      </div>
+      <div class="tiles" style="margin-bottom:16px;">${kpis}</div>
+      <div style="height:260px;"><canvas id="chart-forecast"></canvas></div>
+      ${table}
+      ${assumptions}
+    </div>`;
+
+  upsertChart("chart-forecast", {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "CFO MRR", data: months.map(m => m.cfo_mrr), backgroundColor: "#00B050", stack: "e", borderRadius: 2 },
+        { label: "Web MRR", data: months.map(m => m.web_mrr), backgroundColor: "#2563EB", stack: "e", borderRadius: 2 },
+        { label: "Web builds (1×)", data: months.map(m => m.web_onetime), backgroundColor: "#93C5FD", stack: "e", borderRadius: 2 },
+        { label: "Recruiting (1×)", data: months.map(m => m.recruiting_onetime), backgroundColor: "#F59E0B", stack: "e", borderRadius: 2 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: true, position: "bottom", labels: { boxWidth: 10, font: { size: 11 }, color: "#5B635E" } },
+        tooltip: {
+          callbacks: {
+            label: c => `${c.dataset.label}: ${_fmtMrr(c.parsed.y)}`,
+            footer: items => "Total: " + _fmtMrr(items.reduce((s, i) => s + i.parsed.y, 0)),
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, ticks: { color: "#5B635E", font: { size: 11 } } },
+        y: { stacked: true, beginAtZero: true, grid: { color: "#E3E8E5" }, ticks: { color: "#5B635E", font: { size: 10 }, callback: v => "$" + (v / 1000) + "k" } },
+      },
+    },
+  });
 }
 
 // ───── charts ─────
@@ -146,7 +317,7 @@ async function loadActivityChart() {
   const hours = [...new Set(rows.map(r => r.hour))].sort();
   const skills = [...new Set(rows.map(r => r.skill_tag))];
   const datasets = skills.map((s, i) => ({
-    label: s || "untagged",
+    label: prettyProject(s) || "untagged",
     data: hours.map(h => {
       const rec = rows.find(r => r.hour === h && r.skill_tag === s);
       return rec ? rec.calls : 0;
@@ -171,8 +342,8 @@ async function loadActivityChart() {
 }
 
 async function loadSkillBreakdown() {
-  const { rows } = await api("/api/breakdown/skill?days=30");
-  const labels = rows.map(r => r.skill_tag);
+  const { rows } = await api("/api/breakdown/session?days=30");
+  const labels = rows.map(r => { const l = String(r.label || ""); return l.length > 36 ? l.slice(0, 35) + "…" : l; });
   const data = rows.map(r => Number(r.usd));
   upsertChart("chart-skill", {
     type: "doughnut",
@@ -246,9 +417,9 @@ async function loadClaudeCodeTiles() {
        <div class="sub">what you'd owe pay-as-you-go</div>
      </div>`,
     `<div class="tile">
-       <div class="label">Plan $ — last 7 days</div>
-       <div class="value">${fmtUsd(s.week.usd)}</div>
-       <div class="sub">${s.week.turns} turns · share of $${planMonthly.toFixed(0)}</div>
+       <div class="label">API-equiv — last 7 days</div>
+       <div class="value">${fmtUsd(s.week.api_usd || 0)}</div>
+       <div class="sub">${s.week.turns} turns · plan share ${fmtUsd(s.week.usd)}</div>
      </div>`,
     `<div class="tile">
        <div class="label">Effective $/turn</div>
@@ -592,11 +763,12 @@ async function loadInstantly() {
   const campaigns = d.per_campaign || [];
   document.querySelector("#inst-campaigns-table tbody").innerHTML = campaigns.length
     ? campaigns.map(c => {
-        const status = c.status || "unknown";
-        const badge = status === "active" || status === "1" ? "ok" : status === "paused" || status === "2" ? "" : "failed";
+        const STAT = { 0: "draft", 1: "active", 2: "paused", 3: "completed", 4: "running" };
+        const label = STAT[c.status] || (c.status == null ? "unknown" : String(c.status));
+        const badge = c.status === 1 ? "ok" : c.status === 2 || c.status === 0 ? "" : c.status === 3 || c.status === 4 ? "ok" : "failed";
         return `<tr>
           <td>${esc(c.name)}</td>
-          <td><span class="badge ${badge}">${esc(status)}</span></td>
+          <td><span class="badge ${badge}">${esc(label)}</span></td>
           <td class="num">${(c.leads||0).toLocaleString()}</td>
           <td class="num">${(c.sent||0).toLocaleString()}</td>
           <td class="num">${(c.opened||0).toLocaleString()}</td>
@@ -727,6 +899,14 @@ function initCoachPlan() {
     $('cp-runway-mid-label').textContent = `Day ${dayNum}/365`;
     $('cp-runway-end-label').textContent = 'May 14, 2027 · Goal';
   }
+
+  // Baseline MRR is the LIVE CRM active MRR (set by loadOverviewGoal at boot),
+  // so the Coach tab can never disagree with the CRM tab.
+  const liveMrr = Math.round(window._activeMrr || 0) || 4000;
+  const baseEl = document.getElementById('cp-baseline-mrr');
+  if (baseEl) baseEl.textContent = '$' + liveMrr.toLocaleString();
+  const baseNote = document.getElementById('cp-baseline-note');
+  if (baseNote) baseNote.textContent = 'live from CRM · active MRR';
 
   const MS = [
     { name: 'Start', date: new Date('2026-05-15'), rev: 4000, phase: 'Ramp', monthIdx: 0 },
@@ -1568,19 +1748,19 @@ async function loadClients() {
     if (cnt) cnt.textContent = `${clients.length} client${clients.length === 1 ? "" : "s"}`;
     grid.innerHTML = clients.map(c => {
       const types = (c.dashboard_types || []).map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
-      const link = c.portal_url
-        ? `<a href="${esc(c.portal_url)}" target="_blank" rel="noopener">Open portal ↗</a>`
-        : `<span class="muted">no portal URL</span>`;
+      const links = (c.links && c.links.length)
+        ? c.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener" style="display:inline-block;margin:0 6px 6px 0;padding:5px 10px;background:#0F1623;border:1px solid #1E2D45;border-radius:6px;font-size:12px;color:#60A5FA;text-decoration:none;">${esc(l.label)} ↗</a>`).join("")
+        : `<span class="muted" style="font-size:12px;">no dashboard yet</span>`;
       const repo = c.github_repo
         ? `<a href="https://github.com/${esc(c.github_repo)}" target="_blank" rel="noopener" class="muted">${esc(c.github_repo)}</a>`
-        : `<span class="muted">—</span>`;
+        : "";
       return `
         <div class="card" style="padding:14px;">
           <div style="font-weight:600;margin-bottom:4px;">${esc(c.display_name)}</div>
           <div class="muted" style="font-size:12px;margin-bottom:8px;">${esc(c.business_type || "")}</div>
-          <div style="margin-bottom:8px;">${types || '<span class="muted">—</span>'}</div>
-          <div style="font-size:13px;">${link}</div>
-          <div style="font-size:12px;margin-top:4px;">${repo}</div>
+          <div style="margin-bottom:10px;">${types || '<span class="muted">—</span>'}</div>
+          <div style="margin-bottom:2px;">${links}</div>
+          ${repo ? `<div style="font-size:12px;margin-top:4px;">${repo}</div>` : ""}
         </div>`;
     }).join("");
   } catch (e) {
@@ -1590,78 +1770,6 @@ async function loadClients() {
 }
 
 
-
-// ───── Control Center / executive assistant layer ─────
-function ccItemHtml(item) {
-  const pri = item.priority || "normal";
-  const detail = item.detail ? `<div class="cc-item-detail">${esc(item.detail)}</div>` : "";
-  const action = item.recommended_action ? `<div class="cc-item-action">→ ${esc(item.recommended_action)}</div>` : "";
-  const src = item.source ? `<div class="cc-item-src">${esc(item.source)}${item.evidence_path ? " · " + esc(item.evidence_path) : ""}</div>` : "";
-  return `<div class="cc-item priority-${esc(pri)}"><div class="cc-item-title"><span class="badge ${pri === "high" || pri === "critical" ? "warn" : "ok"}">${esc(pri)}</span>${esc(item.title || "Untitled")}</div>${detail}${action}${src}</div>`;
-}
-
-function ccListHtml(items, emptyText = "Nothing surfaced yet.") {
-  if (!items || !items.length) return `<div class="muted center cc-empty">${esc(emptyText)}</div>`;
-  return items.slice(0, 8).map(ccItemHtml).join("");
-}
-
-async function loadControlCenter(refresh = false) {
-  let data;
-  try {
-    data = await api("/api/control-center/" + (refresh ? "refresh" : "summary"), refresh ? { method: "POST" } : {});
-  } catch (e) {
-    const brief = document.getElementById("cc-brief");
-    if (brief) brief.textContent = `Control Center unavailable: ${e.message}`;
-    const gen = document.getElementById("cc-generated");
-    if (gen) gen.textContent = "API unavailable";
-    throw e;
-  }
-  const groups = data.groups || {};
-  const brief = document.getElementById("cc-brief");
-  if (brief) brief.textContent = data.brief || "No brief generated yet.";
-  const gen = document.getElementById("cc-generated");
-  if (gen) gen.textContent = data.generated_at_iso ? `Updated ${data.generated_at_iso}` : "—";
-  const set = (id, items, empty) => { const el = document.getElementById(id); if (el) el.innerHTML = ccListHtml(items, empty); };
-  set("cc-needs", groups.needs_ricky, "No decisions/action blockers surfaced.");
-  set("cc-today", groups.today || groups.morning_brief, "Calendar source unavailable or no today items.");
-  set("cc-week", groups.this_week, "No week-level workstreams surfaced.");
-  set("cc-radar", groups.action_radar, "No open action radar items.");
-  set("cc-brain", groups.brain_maintenance, "No brain-maintenance items surfaced.");
-
-  const un = document.getElementById("cc-unavailable");
-  if (un) {
-    const rows = data.unavailable || [];
-    un.innerHTML = `<h3>Unavailable sources</h3>` + (rows.length ? rows.map(u => `<div class="cc-unavailable-row"><strong>${esc(u.source)}</strong>: ${esc(u.detail || u.status || "unavailable")}</div>`).join("") : `<div class="muted">All expected sources reported available.</div>`);
-  }
-  const notes = data.notes || [];
-  const nc = document.getElementById("cc-notes-count");
-  if (nc) nc.textContent = `${notes.length} recent`;
-  const nl = document.getElementById("cc-notes-list");
-  if (nl) nl.innerHTML = notes.length ? notes.slice(0, 10).map(n => `<div class="cc-note"><div><strong>${esc(n.title || n.note_type || "Note")}</strong><span class="muted"> · ${fmtTime(n.ts)}</span></div><div>${esc(n.body)}</div></div>`).join("") : `<div class="muted center cc-empty">No executive notes yet.</div>`;
-}
-
-function wireControlCenter() {
-  const refresh = document.getElementById("cc-refresh");
-  if (refresh) refresh.onclick = () => loadControlCenter(true);
-  const save = document.getElementById("cc-note-save");
-  if (save) save.onclick = async () => {
-    const title = document.getElementById("cc-note-title")?.value || "";
-    const bodyEl = document.getElementById("cc-note-body");
-    const body = bodyEl?.value || "";
-    const note_type = document.getElementById("cc-note-type")?.value || "note";
-    const status = document.getElementById("cc-note-status");
-    if (!body.trim()) { if (status) status.textContent = "Write a note first."; return; }
-    try {
-      await api("/api/control-center/notes", { method: "POST", body: JSON.stringify({ title, body, note_type }) });
-      if (bodyEl) bodyEl.value = "";
-      const titleEl = document.getElementById("cc-note-title"); if (titleEl) titleEl.value = "";
-      if (status) status.textContent = "Saved.";
-      await loadControlCenter();
-    } catch (e) {
-      if (status) status.textContent = `Save failed: ${e.message}`;
-    }
-  };
-}
 
 // ───── Agent Manager ─────
 let _agentAutoRefresh = null;
@@ -1764,8 +1872,8 @@ async function boot() {
     loadSpend(), loadCalls(), loadJobs(), loadSkills(),
     loadSpendChart(), loadActivityChart(), loadSkillBreakdown(), loadModelBreakdown(),
     loadClaudeCode(), loadCoach(), loadClients(), loadLeadGen(),
+    loadOverviewGoal(), loadOverviewForecast(),
   ]);
-  await loadControlCenter().catch(e => console.warn("control-center init failed", e));
   // hook refresh buttons for scheduled jobs (load on demand)
   const sjBtn = document.getElementById("sj-refresh");
   if (sjBtn) sjBtn.onclick = loadScheduledTimeline;
@@ -1783,13 +1891,12 @@ async function boot() {
       loadLeadGenAggregate();
     });
   });
-  wireControlCenter();
   try { initCoachPlan(); } catch (e) { console.error("coach-plan init failed", e); }
   connectWS();
   setInterval(tickClock, 1000); tickClock();
-  setInterval(() => { loadSpend(); loadCalls(); loadSpendChart(); loadActivityChart(); loadSkillBreakdown(); loadModelBreakdown(); }, 30000);
+  setInterval(() => { loadSpend(); loadCalls(); loadSpendChart(); loadActivityChart(); loadSkillBreakdown(); loadModelBreakdown(); loadOverviewGoal(); loadOverviewForecast(); }, 30000);
   setInterval(() => {
-    loadSkills(); loadJobs(); loadClaudeCode(); loadCoach(); loadLeadGen(); loadControlCenter();
+    loadSkills(); loadJobs(); loadClaudeCode(); loadCoach(); loadLeadGen();
     if (state.tabsLoaded.has("crm")) loadCrm();
     if (state.tabsLoaded.has("hubspot")) loadHubspot();
     if (state.tabsLoaded.has("instantly")) loadInstantly();
