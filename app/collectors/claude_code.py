@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from app.db import connect
+from app.db import connect, upsert_session_meta
 from app.config import MAX_PLAN_MONTHLY_USD
 
 CLAUDE_PROJECTS_ROOT = Path.home() / ".claude" / "projects"
@@ -70,6 +70,36 @@ def _parse_ts(s: str | None) -> float | None:
         return None
 
 
+# Lines whose user "content" is harness noise, not a real prompt — skipped when
+# deriving a fallback session title.
+_NOISE_PREFIXES = (
+    "<local-command-caveat", "<command-name", "<command-message", "<command-args",
+    "<system-reminder", "caveat:", "<bash-", "[request interrupted",
+    "<user-prompt-submit-hook", "<session-start-hook",
+)
+
+
+def _clean_title(text: str) -> str:
+    t = " ".join((text or "").split())
+    return t[:70].strip()
+
+
+def _looks_like_noise(text: str) -> bool:
+    low = (text or "").lstrip().lower()
+    return (not low) or low.startswith(_NOISE_PREFIXES)
+
+
+def _user_text(msg: dict) -> str | None:
+    c = msg.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        for b in c:
+            if isinstance(b, dict) and b.get("type") == "text":
+                return b.get("text")
+    return None
+
+
 def scan(max_files_per_run: int = 200) -> dict:
     if not CLAUDE_PROJECTS_ROOT.exists():
         return {"turns": 0, "files": 0, "inserted": 0}
@@ -82,6 +112,9 @@ def scan(max_files_per_run: int = 200) -> dict:
     inserted = 0
     turns = 0
 
+    # session_id -> {"ai": <ai-title>, "fallback": <first real user msg>, "ts": <last ts>}
+    titles: dict[str, dict] = {}
+
     with connect() as c:
         for fp in files:
             project = _project_slug(fp)
@@ -92,7 +125,22 @@ def scan(max_files_per_run: int = 200) -> dict:
                             d = json.loads(line)
                         except Exception:
                             continue
-                        if d.get("type") != "assistant":
+                        dtype = d.get("type")
+                        sid = d.get("sessionId") or fp.stem
+                        if dtype == "ai-title":
+                            at = d.get("aiTitle")
+                            if at:
+                                titles.setdefault(sid, {}).update(ai=_clean_title(at), project=project)
+                            continue
+                        if dtype == "user":
+                            slot = titles.setdefault(sid, {})
+                            if not slot.get("fallback"):
+                                txt = _user_text(d.get("message") or {})
+                                if txt and not _looks_like_noise(txt):
+                                    slot["fallback"] = _clean_title(txt)
+                                    slot["project"] = project
+                            continue
+                        if dtype != "assistant":
                             continue
                         msg = d.get("message") or {}
                         usage = msg.get("usage") or {}
@@ -129,7 +177,21 @@ def scan(max_files_per_run: int = 200) -> dict:
             except OSError:
                 continue
 
-    return {"turns": turns, "files": len(files), "inserted": inserted}
+    # Persist a readable title per session: prefer the model's ai-title, else
+    # fall back to the first non-noise user prompt.
+    import time as _time
+    now = _time.time()
+    for sid, slot in titles.items():
+        label = slot.get("ai") or slot.get("fallback")
+        if not label:
+            continue
+        source = "ai-title" if slot.get("ai") else "first-prompt"
+        try:
+            upsert_session_meta(sid, label, source, slot.get("project", ""), now)
+        except Exception:
+            pass
+
+    return {"turns": turns, "files": len(files), "inserted": inserted, "titled": len(titles)}
 
 
 # ── read-side helpers ──────────────────────────────────────────────────

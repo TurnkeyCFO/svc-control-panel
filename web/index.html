@@ -23,17 +23,16 @@
 
   <nav class="tabs">
     <button class="tab active" data-tab="overview">Overview</button>
-    <button class="tab" data-tab="agents">⚡ Agents</button>
-    <button class="tab" data-tab="control-center">Control Center</button>
+    <button class="tab" data-tab="crm">CRM</button>
     <button class="tab" data-tab="claude-code">Claude Code</button>
     <button class="tab" data-tab="lead-gen">Lead Gen</button>
     <button class="tab" data-tab="instantly">Instantly</button>
-    <button class="tab" data-tab="crm">CRM</button>
     <button class="tab" data-tab="hubspot">HubSpot</button>
     <button class="tab" data-tab="coach">Coach</button>
     <button class="tab" data-tab="scheduled-jobs">Scheduled Jobs</button>
     <button class="tab" data-tab="clients">Client Dashboards</button>
     <button class="tab" data-tab="skills">Skills</button>
+    <button class="tab" data-tab="agents">⚡ Agents</button>
   </nav>
 
   <main>
@@ -52,6 +51,9 @@
 
     <!-- ── OVERVIEW TAB ─────────────────────────────────────── -->
     <section class="tab-panel active" data-panel="overview">
+      <div id="overview-goal-section"></div>
+      <div id="overview-forecast"></div>
+
       <div class="tiles" id="spend-tiles">
         <div class="tile placeholder">Loading spend…</div>
       </div>
@@ -75,7 +77,7 @@
 
       <div class="grid-2">
         <div class="card">
-          <div class="card-head"><h2>Spend by skill (MTD)</h2></div>
+          <div class="card-head"><h2>Spend by session (MTD)</h2><span class="muted">top work threads</span></div>
           <div class="chart-wrap small"><canvas id="chart-skill"></canvas></div>
         </div>
         <div class="card">
@@ -97,50 +99,6 @@
     </section>
 
     <!-- ── CONTROL CENTER TAB ───────────────────────────────── -->
-    <section class="tab-panel" data-panel="control-center">
-      <div class="cc-hero">
-        <div>
-          <div class="eyebrow">Executive assistant layer</div>
-          <h1>Morning Brief &amp; Command Center</h1>
-          <p>Clean day/week view: priorities, notes, actions, brain maintenance, and source availability.</p>
-        </div>
-        <div class="cc-hero-actions">
-          <button id="cc-refresh">Refresh first draft</button>
-          <span class="muted" id="cc-generated">—</span>
-        </div>
-      </div>
-
-      <div class="grid-2 cc-grid-main">
-        <div class="card cc-card-primary">
-          <div class="card-head"><h2>Morning Brief</h2><span class="muted">first draft</span></div>
-          <div id="cc-brief" class="cc-brief">Loading Control Center…</div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h2>Notes &amp; Actions</h2><span class="muted" id="cc-notes-count"></span></div>
-          <div class="cc-note-form">
-            <input id="cc-note-title" type="text" placeholder="Optional title" />
-            <textarea id="cc-note-body" rows="4" placeholder="Capture an executive note, action, decision, or open loop…"></textarea>
-            <div class="flex-gap">
-              <select id="cc-note-type"><option value="note">Note</option><option value="action">Action</option><option value="decision">Decision</option></select>
-              <button id="cc-note-save">Save note</button>
-              <span class="muted" id="cc-note-status"></span>
-            </div>
-          </div>
-          <div id="cc-notes-list" class="cc-list"><div class="muted center">Loading notes…</div></div>
-        </div>
-      </div>
-
-      <div class="grid-3">
-        <div class="card"><div class="card-head"><h2>Needs Ricky</h2></div><div id="cc-needs" class="cc-list"></div></div>
-        <div class="card"><div class="card-head"><h2>Today</h2></div><div id="cc-today" class="cc-list"></div></div>
-        <div class="card"><div class="card-head"><h2>This Week</h2></div><div id="cc-week" class="cc-list"></div></div>
-      </div>
-
-      <div class="grid-2">
-        <div class="card"><div class="card-head"><h2>Action Radar</h2></div><div id="cc-radar" class="cc-list"></div></div>
-        <div class="card"><div class="card-head"><h2>Brain / Source Health</h2></div><div id="cc-brain" class="cc-list"></div><div id="cc-unavailable" class="cc-unavailable"></div></div>
-      </div>
-    </section>
 
 
     <!-- ── CLAUDE CODE TAB ─────────────────────────────────── -->
@@ -377,13 +335,13 @@
         </header>
 
         <div class="cp-tab-bar">
-          <div class="cp-tab active" data-cp-tab="daily">Daily</div>
+          <div class="cp-tab" data-cp-tab="daily">Daily</div>
           <div class="cp-tab" data-cp-tab="weekly">Weekly</div>
-          <div class="cp-tab" data-cp-tab="goals">12-Month Goal</div>
+          <div class="cp-tab active" data-cp-tab="goals">12-Month Goal</div>
           <div class="cp-tab" data-cp-tab="scenarios">Scenarios</div>
         </div>
 
-        <section class="cp-tab-pane" id="cp-tab-daily">
+        <section class="cp-tab-pane cp-hidden" id="cp-tab-daily">
           <div class="cp-grid cp-cols-2">
             <div class="cp-card">
               <h2>Today's N-Star</h2>
@@ -479,7 +437,7 @@
           </div>
         </section>
 
-        <section class="cp-tab-pane cp-hidden" id="cp-tab-goals">
+        <section class="cp-tab-pane" id="cp-tab-goals">
           <div class="cp-grid cp-cols-3">
             <div class="cp-card">
               <h2>12-Month Target</h2>
@@ -493,8 +451,8 @@
             </div>
             <div class="cp-card">
               <h2>Today's Baseline</h2>
-              <div class="cp-big">$4,000<span class="cp-unit">/mo MRR</span></div>
-              <div class="cp-note">8 CFO clients · ~$500 avg · no active maint book yet</div>
+              <div class="cp-big"><span id="cp-baseline-mrr">$4,000</span><span class="cp-unit">/mo MRR</span></div>
+              <div class="cp-note" id="cp-baseline-note">live from CRM</div>
             </div>
           </div>
 

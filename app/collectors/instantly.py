@@ -73,35 +73,35 @@ def summary() -> dict:
         except Exception as e:
             out["campaigns_error"] = str(e)
 
-        # Campaign analytics (last 30 days)
+        # Campaign analytics — v2 returns ALL campaigns in one array from a single
+        # call (no per-campaign loop). Field names per Instantly v2.
         start = (date.today() - timedelta(days=30)).isoformat()
         end = date.today().isoformat()
         totals = out["totals"]
         per_campaign = []
-        for c in out["campaigns"][:20]:  # cap at 20 to limit API calls
-            cid = c.get("id")
-            if not cid:
-                continue
-            try:
-                r = _get("/analytics/campaign/summary", {
-                    "campaign_id": cid,
-                    "start_date": start,
-                    "end_date": end,
-                })
-                stats = r or {}
-                sent = int(stats.get("emails_sent_count") or stats.get("total_emails_sent") or 0)
-                opened = int(stats.get("unique_open_count") or stats.get("total_open_count") or 0)
-                replied = int(stats.get("total_reply_count") or 0)
-                bounced = int(stats.get("bounced_count") or 0)
-                leads = int(stats.get("total_leads_count") or 0)
+        try:
+            r = _get("/campaigns/analytics", {"start_date": start, "end_date": end})
+            rows = r if isinstance(r, list) else (r.get("items") if isinstance(r, dict) else []) or []
+            by_id = {}
+            for row in rows:
+                key = row.get("campaign_id") or row.get("id")
+                if key:
+                    by_id[key] = row
+            for c in out["campaigns"]:
+                s = by_id.get(c.get("id"), {})
+                sent = int(s.get("emails_sent_count") or 0)
+                opened = int(s.get("open_count_unique") or s.get("open_count") or 0)
+                replied = int(s.get("reply_count_unique") or s.get("reply_count") or 0)
+                bounced = int(s.get("bounced_count") or 0)
+                leads = int(s.get("leads_count") or 0)
                 totals["sent"] += sent
                 totals["opened"] += opened
                 totals["replied"] += replied
                 totals["bounced"] += bounced
                 totals["leads"] += leads
                 per_campaign.append({
-                    "id": cid,
-                    "name": c.get("name") or cid,
+                    "id": c.get("id"),
+                    "name": c.get("name") or c.get("id"),
                     "status": c.get("status"),
                     "sent": sent,
                     "opened": opened,
@@ -112,14 +112,8 @@ def summary() -> dict:
                     "reply_rate": round(replied / sent * 100, 2) if sent else 0,
                     "bounce_rate": round(bounced / sent * 100, 2) if sent else 0,
                 })
-            except Exception:
-                per_campaign.append({
-                    "id": cid, "name": c.get("name") or cid,
-                    "status": c.get("status"),
-                    "sent": 0, "opened": 0, "replied": 0,
-                    "bounced": 0, "leads": 0,
-                    "open_rate": 0, "reply_rate": 0, "bounce_rate": 0,
-                })
+        except Exception as e:
+            out["analytics_error"] = str(e)
         # sort by sent desc
         per_campaign.sort(key=lambda x: x["sent"], reverse=True)
         out["per_campaign"] = per_campaign
@@ -132,12 +126,12 @@ def summary() -> dict:
                 {
                     "email": a.get("email"),
                     "warmup_score": (
-                        a.get("warmup_score")
-                        or (a.get("warmup") or {}).get("score")
+                        a.get("stat_warmup_score")
+                        if a.get("stat_warmup_score") is not None
+                        else a.get("warmup_score") or (a.get("warmup") or {}).get("score")
                     ),
                     "warmup_enabled": (
-                        a.get("warmup_enabled")
-                        or (a.get("warmup") or {}).get("enabled")
+                        a.get("warmup_status") == 1 or bool(a.get("warmup"))
                     ),
                     "status": a.get("status"),
                     "daily_limit": a.get("daily_limit"),
