@@ -1,4 +1,7 @@
 # Checks /health and restarts run.bat if unhealthy. Caps restart loop via kill-switch file.
+# Self-hide this console window immediately (no-admin fix for the every-2-min pop-up; task action can't be changed without elevation).
+Add-Type -Name Win -Namespace Native -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow(); [DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);' -ErrorAction SilentlyContinue
+try { [Native.Win]::ShowWindow([Native.Win]::GetConsoleWindow(), 0) | Out-Null } catch {}
 $ErrorActionPreference = "SilentlyContinue"
 
 $repoRoot  = Split-Path -Parent $PSScriptRoot
